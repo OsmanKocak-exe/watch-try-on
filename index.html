@@ -3,7 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Sanal Saat Deneme</title>
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Saatleri sanal olarak bileğinizde deneyin">
+    <title>WristView - Sanal Saat Deneme</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,24 +24,119 @@
         <!-- Saat çizim katmanı -->
         <canvas id="output"></canvas>
 
-        <!-- Debug bilgisi -->
-        <div id="debug">Sayfa yüklendi. BAŞLAT butonuna bas.</div>
+        <!-- Üst Bar -->
+        <header id="top-bar">
+            <div class="brand">
+                <span class="brand-icon">⌚</span>
+                <span class="brand-name">WristView</span>
+            </div>
+            <div class="top-actions">
+                <button id="camera-switch-btn" class="icon-btn" title="Kamera Değiştir">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 16v4a2 2 0 0 1-2 2h-4"/>
+                        <path d="M14 2H6a2 2 0 0 0-2 2v4"/>
+                        <path d="M4 16l4-4-4-4"/>
+                        <path d="M20 8l-4 4 4 4"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
 
-        <!-- Kontroller (başta gizli) -->
-        <div id="controls">
-            <button id="size-down">➖ Küçült</button>
-            <button id="capture-btn">📸 Fotoğraf Çek</button>
-            <button id="size-up">➕ Büyüt</button>
+        <!-- Durum Göstergesi -->
+        <div id="status-bar">
+            <div class="status-dot"></div>
+            <span id="status-text">Hazırlanıyor...</span>
         </div>
 
-        <!-- Başlangıç ekranı -->
-        <div id="loading">
-            <div class="loading-content">
-                <p class="loading-title">⌚ Sanal Saat Deneme</p>
-                <p class="loading-sub">Kameraya erişim gerekiyor</p>
-                <button id="start-btn">🎬 BAŞLAT</button>
-                <p id="error-msg"></p>
+        <!-- Saat Bilgi Kartı -->
+        <div id="watch-info-card">
+            <div class="watch-info-inner">
+                <span class="watch-brand">LUXURY</span>
+                <span class="watch-model">Classic Gold Edition</span>
+                <span class="watch-price">₺12,500</span>
             </div>
+        </div>
+
+        <!-- Alt Kontrol Paneli -->
+        <div id="bottom-panel">
+
+            <!-- Boyut Ayarı -->
+            <div id="size-control">
+                <button id="size-down" class="size-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                </button>
+                <div class="size-label">
+                    <span id="size-value">100%</span>
+                </div>
+                <button id="size-up" class="size-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Ana Butonlar -->
+            <div id="action-buttons">
+                <button id="capture-btn" class="action-btn primary-btn">
+                    <div class="capture-ring">
+                        <div class="capture-inner"></div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Alt bilgi -->
+            <div id="bottom-hint">
+                <span>Bileğinizi kameraya gösterin</span>
+            </div>
+
+        </div>
+
+        <!-- Başlangıç Ekranı -->
+        <div id="splash-screen">
+            <div class="splash-content">
+
+                <div class="splash-logo">
+                    <div class="logo-circle">
+                        <span>⌚</span>
+                    </div>
+                </div>
+
+                <h1 class="splash-title">WristView</h1>
+                <p class="splash-subtitle">Saatleri Sanal Olarak Deneyin</p>
+
+                <div class="splash-features">
+                    <div class="feature-item">
+                        <span class="feature-icon">📸</span>
+                        <span class="feature-text">Kameranızı bileğinize tutun</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">⌚</span>
+                        <span class="feature-text">Saati bileğinizde görün</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-icon">💾</span>
+                        <span class="feature-text">Fotoğraf çekip kaydedin</span>
+                    </div>
+                </div>
+
+                <button id="start-btn">
+                    <span class="btn-text">Denemeye Başla</span>
+                    <span class="btn-arrow">→</span>
+                </button>
+
+                <p id="error-msg"></p>
+
+                <p class="splash-note">Kamera erişimi gereklidir</p>
+
+            </div>
+        </div>
+
+        <!-- Fotoğraf Çekildi Bildirimi -->
+        <div id="capture-toast">
+            <span>✅ Fotoğraf kaydedildi!</span>
         </div>
 
     </div>
