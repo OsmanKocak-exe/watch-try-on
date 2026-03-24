@@ -2,46 +2,450 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Sanal Saat Deneme</title>
-    <link rel="stylesheet" href="css/style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            touch-action: none;
+        }
+
+        #app {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #camera {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 1;
+        }
+
+        #output {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            z-index: 2;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            padding: 0 20px;
+            z-index: 10;
+        }
+
+        #controls button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            font-size: 14px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-weight: bold;
+        }
+
+        #capture-btn {
+            background: #FFD700 !important;
+            color: #000 !important;
+        }
+
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.9);
+            color: #FFD700;
+            font-size: 18px;
+            z-index: 100;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #loading.hidden {
+            display: none;
+        }
+
+        #error-msg {
+            color: #ff4444;
+            font-size: 14px;
+            margin-top: 15px;
+            max-width: 300px;
+            line-height: 1.5;
+        }
+
+        #start-btn {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 18px;
+            border: none;
+            border-radius: 30px;
+            background: #FFD700;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #debug {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #0f0;
+            font-size: 12px;
+            z-index: 50;
+            background: rgba(0,0,0,0.7);
+            padding: 8px;
+            border-radius: 8px;
+            max-width: 250px;
+        }
+    </style>
 </head>
 <body>
     <div id="app">
-        <!-- Kamera Görüntüsü -->
-        <video id="camera" autoplay playsinline></video>
+        <video id="camera" autoplay playsinline muted></video>
         <canvas id="output"></canvas>
 
-        <!-- Saat Seçim Paneli -->
-        <div id="watch-panel">
-            <h3>🕐 Saat Seç</h3>
-            <div class="watch-options">
-                <div class="watch-card active" data-model="watch1">
-                    <img src="assets/watch1-thumb.png" alt="Klasik Saat">
-                    <p>Klasik Gold</p>
-                </div>
-            </div>
-        </div>
+        <div id="debug">⏳ Başlatılıyor...</div>
 
-        <!-- Kontroller -->
-        <div id="controls">
+        <div id="controls" style="display:none;">
+            <button id="size-down">➖ Küçült</button>
             <button id="capture-btn">📸 Fotoğraf Çek</button>
             <button id="size-up">➕ Büyüt</button>
-            <button id="size-down">➖ Küçült</button>
         </div>
 
-        <!-- Yükleme Ekranı -->
         <div id="loading">
-            <p>Kamera başlatılıyor...</p>
+            <p>⌚ Sanal Saat Deneme</p>
+            <br>
+            <p style="font-size:14px; color:#ccc;">
+                Kameraya erişim gerekiyor
+            </p>
+            <button id="start-btn" onclick="startApp()">
+                🎬 BAŞLAT
+            </button>
+            <div id="error-msg"></div>
         </div>
     </div>
 
-    <!-- Kütüphaneler -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="js/app.js"></script>
-</body>
-</html>
+    <script>
+        // ============================================
+        // DEĞİŞKENLER
+        // ============================================
+        let video, canvas, ctx;
+        let watchScale = 1.0;
+        let watchImage = new Image();
+        let isRunning = false;
+        let handsModule = null;
+
+        const debugEl = document.getElementById('debug');
+        const errorEl = document.getElementById('error-msg');
+        const loadingEl = document.getElementById('loading');
+        const controlsEl = document.getElementById('controls');
+
+        function log(msg) {
+            console.log(msg);
+            debugEl.textContent = msg;
+        }
+
+        // ============================================
+        // SVG SAAT GÖRSELİ
+        // ============================================
+        function createWatchSVG() {
+            const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">
+                <rect x="65" y="0" width="70" height="100" rx="5" fill="#8B4513" stroke="#5C2E00" stroke-width="2"/>
+                <rect x="70" y="5" width="60" height="90" rx="3" fill="#A0522D"/>
+                <circle cx="100" cy="150" r="60" fill="#FFD700" stroke="#B8860B" stroke-width="4"/>
+                <circle cx="100" cy="150" r="52" fill="#FFFEF0" stroke="#DAA520" stroke-width="2"/>
+                <text x="100" y="112" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">12</text>
+                <text x="140" y="154" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">3</text>
+                <text x="100" y="196" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">6</text>
+                <text x="60" y="154" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">9</text>
+                <line x1="100" y1="150" x2="100" y2="118" stroke="#333" stroke-width="3" stroke-linecap="round"/>
+                <line x1="100" y1="150" x2="125" y2="140" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+                <line x1="100" y1="150" x2="90" y2="125" stroke="#FF0000" stroke-width="1" stroke-linecap="round"/>
+                <circle cx="100" cy="150" r="3" fill="#333"/>
+                <text x="100" y="135" text-anchor="middle" font-size="8" fill="#B8860B" font-style="italic">LUXURY</text>
+                <rect x="156" y="145" width="12" height="10" rx="2" fill="#FFD700" stroke="#B8860B" stroke-width="1"/>
+                <rect x="65" y="200" width="70" height="100" rx="5" fill="#8B4513" stroke="#5C2E00" stroke-width="2"/>
+                <rect x="70" y="205" width="60" height="90" rx="3" fill="#A0522D"/>
+                <ellipse cx="100" cy="230" rx="4" ry="3" fill="#5C2E00"/>
+                <ellipse cx="100" cy="245" rx="4" ry="3" fill="#5C2E00"/>
+                <ellipse cx="100" cy="260" rx="4" ry="3" fill="#5C2E00"/>
+                <ellipse cx="100" cy="275" rx="4" ry="3" fill="#5C2E00"/>
+            </svg>`;
+            return 'data:image/svg+xml;base64,' + btoa(svg);
+        }
+
+        // ============================================
+        // ANA BAŞLATMA FONKSİYONU
+        // ============================================
+        async function startApp() {
+            document.getElementById('start-btn').textContent = '⏳ Yükleniyor...';
+            document.getElementById('start-btn').disabled = true;
+            errorEl.textContent = '';
+
+            video = document.getElementById('camera');
+            canvas = document.getElementById('output');
+            ctx = canvas.getContext('2d');
+
+            // 1) Saat görselini yükle
+            log('1/3 Saat görseli yükleniyor...');
+            watchImage.src = createWatchSVG();
+
+            // 2) Kamerayı aç
+            log('2/3 Kamera açılıyor...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+
+                video.srcObject = stream;
+
+                await new Promise((resolve, reject) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(resolve).catch(reject);
+                    };
+                    setTimeout(() => reject(new Error('Video yüklenemedi (timeout)')), 10000);
+                });
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                log('✅ Kamera açıldı! (' + video.videoWidth + 'x' + video.videoHeight + ')');
+
+            } catch (err) {
+                log('❌ Kamera hatası!');
+                errorEl.innerHTML = `
+                    <strong>Kamera açılamadı:</strong><br>
+                    ${err.message}<br><br>
+                    <strong>Çözüm:</strong><br>
+                    • HTTPS kullandığınızdan emin olun<br>
+                    • Tarayıcı ayarlarından kamera iznini kontrol edin<br>
+                    • Başka bir uygulama kamerayı kullanıyor olabilir
+                `;
+                document.getElementById('start-btn').textContent = '🔄 Tekrar Dene';
+                document.getElementById('start-btn').disabled = false;
+                return;
+            }
+
+            // 3) MediaPipe Hands yükle
+            log('3/3 El algılama yükleniyor...');
+            try {
+                await loadMediaPipeHands();
+            } catch (err) {
+                log('⚠️ El algılama yüklenemedi, basit mod aktif');
+                errorEl.textContent = 'El algılama yüklenemedi: ' + err.message;
+                // Basit modda devam et
+                startSimpleMode();
+                return;
+            }
+
+            // Her şey hazır!
+            loadingEl.classList.add('hidden');
+            controlsEl.style.display = 'flex';
+            isRunning = true;
+            log('✅ Hazır! Elini kameraya göster');
+
+            detectFrame();
+        }
+
+        // ============================================
+        // MEDIAPIPE HANDS YÜKLEME
+        // ============================================
+        function loadMediaPipeHands() {
+            return new Promise((resolve, reject) => {
+                // Script'leri dinamik yükle
+                const scripts = [
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js',
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js',
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js'
+                ];
+
+                let loaded = 0;
+
+                scripts.forEach(src => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = () => {
+                        loaded++;
+                        log(`📦 Yükleniyor... (${loaded}/${scripts.length})`);
+                        if (loaded === scripts.length) {
+                            initHands().then(resolve).catch(reject);
+                        }
+                    };
+                    script.onerror = () => reject(new Error('Script yüklenemedi: ' + src));
+                    document.head.appendChild(script);
+                });
+
+                // Timeout
+                setTimeout(() => reject(new Error('Yükleme zaman aşımı')), 30000);
+            });
+        }
+
+        async function initHands() {
+            handsModule = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+
+            handsModule.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.5
+            });
+
+            handsModule.onResults(onHandResults);
+
+            // İlk frame gönder (modeli yüklemesi için)
+            await handsModule.send({ image: video });
+            log('✅ El algılama hazır!');
+        }
+
+        // ============================================
+        // EL ALGILAMA SONUÇLARI
+        // ============================================
+        function onHandResults(results) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                const wrist = landmarks[0];
+                const point5 = landmarks[5];
+                const point17 = landmarks[17];
+                const middleFinger = landmarks[9];
+
+                const wristX = wrist.x * canvas.width;
+                const wristY = wrist.y * canvas.height;
+
+                const handWidth = Math.sqrt(
+                    Math.pow((point5.x - point17.x) * canvas.width, 2) +
+                    Math.pow((point5.y - point17.y) * canvas.height, 2)
+                );
+
+                const watchSize = handWidth * 1.5 * watchScale;
+
+                const angle = Math.atan2(
+                    (middleFinger.y - wrist.y) * canvas.height,
+                    (middleFinger.x - wrist.x) * canvas.width
+                );
+
+                drawWatch(wristX, wristY, watchSize, angle);
+                log('✅ El algılandı! ✋');
+            } else {
+                log('👀 Elini kameraya göster...');
+            }
+        }
+
+        // ============================================
+        // SAAT ÇİZİMİ
+        // ============================================
+        function drawWatch(x, y, size, angle) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle - Math.PI / 2);
+
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 15;
+            ctx.shadowOffsetX = 5;
+            ctx.shadowOffsetY = 5;
+
+            const watchWidth = size;
+            const watchHeight = size * 1.5;
+
+            ctx.drawImage(
+                watchImage,
+                -watchWidth / 2,
+                -watchHeight / 2,
+                watchWidth,
+                watchHeight
+            );
+
+            ctx.restore();
+        }
+
+        // ============================================
+        // FRAME DÖNGÜSÜ
+        // ============================================
+        async function detectFrame() {
+            if (!isRunning) return;
+
+            try {
+                await handsModule.send({ image: video });
+            } catch (e) {
+                console.warn('Frame hatası:', e);
+            }
+
+            requestAnimationFrame(detectFrame);
+        }
+
+        // ============================================
+        // BASİT MOD (MediaPipe yüklenmezse)
+        // ============================================
+        function startSimpleMode() {
+            loadingEl.classList.add('hidden');
+            controlsEl.style.display = 'flex';
+
+            log('📍 Basit mod: Ekrana dokun saati yerleştir');
+
+            let touchX = canvas.width / 2;
+            let touchY = canvas.height / 2;
+
+            function drawFrame() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawWatch(touchX, touchY, 100 * watchScale, 0);
+                requestAnimationFrame(drawFrame);
+            }
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                // scaleX(-1) yüzünden X'i ters çevir
+                touchX = (rect.width - (e.touches[0].clientX - rect.left)) * scaleX;
+                touchY = (e.touches[0].clientY - rect.top) * scaleY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                touchX = (rect.width - (e.touches[0].clientX - rect.left)) * scaleX;
+                touchY = (e.touches[0].clientY - rect.top)<span class="ml-2" /><span class="inline-block w-3 h-3 rounded-full bg-neutral-a12 align-middle mb-[0.1rem]" />
