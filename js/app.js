@@ -1,6 +1,6 @@
 // ============================================
-//  WRISTVIEW - SANAL SAAT DENEME
-//  Profesyonel Versiyon
+//  WRISTVIEW - 3D SAAT DENEME
+//  Three.js Offscreen WebGL Renderer
 // ============================================
 
 (function () {
@@ -9,46 +9,54 @@
     // ========================
     //  DOM ELEMANLARI
     // ========================
-    var video       = document.getElementById("camera");
-    var canvas      = document.getElementById("output");
-    var ctx         = canvas.getContext("2d");
-    var splashEl    = document.getElementById("splash-screen");
-    var topBar      = document.getElementById("top-bar");
-    var statusBar   = document.getElementById("status-bar");
-    var statusText  = document.getElementById("status-text");
-    var watchInfo   = document.getElementById("watch-info-card");
-    var bottomPanel = document.getElementById("bottom-panel");
-    var startBtn    = document.getElementById("start-btn");
-    var errorEl     = document.getElementById("error-msg");
-    var sizeUpBtn   = document.getElementById("size-up");
-    var sizeDownBtn = document.getElementById("size-down");
-    var sizeValue   = document.getElementById("size-value");
-    var captureBtn  = document.getElementById("capture-btn");
-    var cameraSwitchBtn = document.getElementById("camera-switch-btn");
-    var captureToast = document.getElementById("capture-toast");
+    var video            = document.getElementById("camera");
+    var canvas           = document.getElementById("output");
+    var ctx              = canvas.getContext("2d");
+    var splashEl         = document.getElementById("splash-screen");
+    var topBar           = document.getElementById("top-bar");
+    var statusBar        = document.getElementById("status-bar");
+    var statusText       = document.getElementById("status-text");
+    var watchInfo        = document.getElementById("watch-info-card");
+    var bottomPanel      = document.getElementById("bottom-panel");
+    var startBtn         = document.getElementById("start-btn");
+    var errorEl          = document.getElementById("error-msg");
+    var sizeUpBtn        = document.getElementById("size-up");
+    var sizeDownBtn      = document.getElementById("size-down");
+    var sizeValue        = document.getElementById("size-value");
+    var captureBtn       = document.getElementById("capture-btn");
+    var cameraSwitchBtn  = document.getElementById("camera-switch-btn");
+    var captureToast     = document.getElementById("capture-toast");
 
     // ========================
-    //  DEĞİŞKENLER
+    //  DURUM DEĞİŞKENLERİ
     // ========================
     var watchScale    = 1.0;
-    var watchImage    = new Image();
     var isRunning     = false;
     var handsInstance = null;
     var useSimpleMode = false;
     var touchX        = 0;
     var touchY        = 0;
-    var currentFacing = "environment"; // ARKA KAMERA DEFAULT
+    var currentFacing = "environment";
     var currentStream = null;
     var handDetected  = false;
+
+    // ========================
+    //  THREE.JS DEĞİŞKENLERİ
+    // ========================
+    var threeRenderer  = null;
+    var threeScene     = null;
+    var threeCamera    = null;
+    var watchGroup     = null;
+    var clockHands     = {};
+    var threeReady     = false;
+    var OFFSCREEN_SIZE = 512; // Offscreen WebGL canvas boyutu
 
     // ========================
     //  LOG & HATA
     // ========================
     function setStatus(msg, type) {
         console.log("[WristView]", msg);
-        if (statusText) {
-            statusText.textContent = msg;
-        }
+        if (statusText) statusText.textContent = msg;
         if (type === "detecting") {
             statusBar.className = "visible detecting";
         } else if (type === "waiting") {
@@ -64,9 +72,7 @@
     }
 
     function hideError() {
-        if (errorEl) {
-            errorEl.classList.remove("visible");
-        }
+        if (errorEl) errorEl.classList.remove("visible");
     }
 
     // ========================
@@ -83,116 +89,386 @@
     function showToast(msg) {
         captureToast.querySelector("span").textContent = msg;
         captureToast.classList.add("show");
-        setTimeout(function () {
-            captureToast.classList.remove("show");
-        }, 2000);
+        setTimeout(function () { captureToast.classList.remove("show"); }, 2000);
     }
 
     function updateSizeLabel() {
-        var percent = Math.round(watchScale * 100);
-        sizeValue.textContent = percent + "%";
+        sizeValue.textContent = Math.round(watchScale * 100) + "%";
     }
 
     // ========================
-    //  SVG SAAT GÖRSELİ
+    //  THREE.JS 3D SAAT KURULUMU
     // ========================
-    function createWatchDataURL() {
-        var svg = [
-            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300">',
+    function loadThreeJS() {
+        return new Promise(function (resolve, reject) {
+            if (typeof THREE !== "undefined") { resolve(); return; }
 
-            // Kordon üst
-            '<defs>',
-            '<linearGradient id="strap" x1="0" y1="0" x2="1" y2="0">',
-            '<stop offset="0%" stop-color="#5C2E00"/>',
-            '<stop offset="30%" stop-color="#8B4513"/>',
-            '<stop offset="70%" stop-color="#A0522D"/>',
-            '<stop offset="100%" stop-color="#6B3410"/>',
-            '</linearGradient>',
-            '<linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">',
-            '<stop offset="0%" stop-color="#FFE55C"/>',
-            '<stop offset="50%" stop-color="#FFD700"/>',
-            '<stop offset="100%" stop-color="#C5A028"/>',
-            '</linearGradient>',
-            '<radialGradient id="face" cx="50%" cy="50%" r="50%">',
-            '<stop offset="0%" stop-color="#FFFFF5"/>',
-            '<stop offset="90%" stop-color="#F5F0DC"/>',
-            '<stop offset="100%" stop-color="#E8E0C8"/>',
-            '</radialGradient>',
-            '<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">',
-            '<feDropShadow dx="2" dy="3" stdDeviation="3" flood-opacity="0.3"/>',
-            '</filter>',
-            '</defs>',
+            var script = document.createElement("script");
+            // Three.js r128 — CDN
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+            script.onload  = resolve;
+            script.onerror = function () { reject(new Error("Three.js yüklenemedi")); };
+            document.head.appendChild(script);
+        });
+    }
 
-            // Kordon üst
-            '<rect x="62" y="0" width="76" height="105" rx="6" fill="url(#strap)" filter="url(#shadow)"/>',
-            '<rect x="68" y="4" width="64" height="96" rx="4" fill="#8B4513" opacity="0.6"/>',
-            '<line x1="75" y1="20" x2="125" y2="20" stroke="#5C2E00" stroke-width="0.5" opacity="0.5"/>',
-            '<line x1="75" y1="35" x2="125" y2="35" stroke="#5C2E00" stroke-width="0.5" opacity="0.5"/>',
-            '<line x1="75" y1="50" x2="125" y2="50" stroke="#5C2E00" stroke-width="0.5" opacity="0.5"/>',
+    function initThreeJS() {
+        /* global THREE */
 
-            // Kasa
-            '<circle cx="100" cy="150" r="62" fill="url(#gold)" filter="url(#shadow)"/>',
-            '<circle cx="100" cy="150" r="58" fill="#B8860B"/>',
-            '<circle cx="100" cy="150" r="55" fill="url(#gold)"/>',
-            '<circle cx="100" cy="150" r="52" fill="url(#face)"/>',
+        // --- Offscreen renderer ---
+        threeRenderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true,        // şeffaf arka plan
+            preserveDrawingBuffer: true
+        });
+        threeRenderer.setSize(OFFSCREEN_SIZE, OFFSCREEN_SIZE);
+        threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
+        threeRenderer.shadowMap.enabled = true;
+        threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // DOM'a ekleme — sadece offscreen kullanacağız
+        threeRenderer.domElement.style.display = "none";
+        document.body.appendChild(threeRenderer.domElement);
 
-            // Kadran işaretleri
-            '<line x1="100" y1="100" x2="100" y2="106" stroke="#333" stroke-width="2"/>',
-            '<line x1="100" y1="194" x2="100" y2="200" stroke="#333" stroke-width="2"/>',
-            '<line x1="150" y1="150" x2="144" y2="150" stroke="#333" stroke-width="2"/>',
-            '<line x1="50" y1="150" x2="56" y2="150" stroke="#333" stroke-width="2"/>',
+        // --- Sahne ---
+        threeScene = new THREE.Scene();
 
-            // Küçük işaretler
-            '<line x1="125" y1="107" x2="121" y2="111" stroke="#666" stroke-width="1"/>',
-            '<line x1="143" y1="125" x2="139" y2="129" stroke="#666" stroke-width="1"/>',
-            '<line x1="143" y1="175" x2="139" y2="171" stroke="#666" stroke-width="1"/>',
-            '<line x1="125" y1="193" x2="121" y2="189" stroke="#666" stroke-width="1"/>',
-            '<line x1="75" y1="193" x2="79" y2="189" stroke="#666" stroke-width="1"/>',
-            '<line x1="57" y1="175" x2="61" y2="171" stroke="#666" stroke-width="1"/>',
-            '<line x1="57" y1="125" x2="61" y2="129" stroke="#666" stroke-width="1"/>',
-            '<line x1="75" y1="107" x2="79" y2="111" stroke="#666" stroke-width="1"/>',
+        // --- Kamera (orthographic — perspektif distorsiyonunu azaltır) ---
+        var aspect = 1;
+        var d = 6;
+        threeCamera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 100);
+        threeCamera.position.set(0, 0, 10);
+        threeCamera.lookAt(0, 0, 0);
 
-            // Rakamlar
-            '<text x="100" y="115" text-anchor="middle" font-size="11" font-weight="bold" fill="#333" font-family="serif">12</text>',
-            '<text x="139" y="154" text-anchor="middle" font-size="11" font-weight="bold" fill="#333" font-family="serif">3</text>',
-            '<text x="100" y="193" text-anchor="middle" font-size="11" font-weight="bold" fill="#333" font-family="serif">6</text>',
-            '<text x="61" y="154" text-anchor="middle" font-size="11" font-weight="bold" fill="#333" font-family="serif">9</text>',
+        // --- Işıklandırma ---
+        var ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        threeScene.add(ambient);
 
-            // Marka
-            '<text x="100" y="132" text-anchor="middle" font-size="7" fill="#B8860B" font-family="serif" letter-spacing="2">LUXURY</text>',
-            '<text x="100" y="140" text-anchor="middle" font-size="5" fill="#999" font-family="sans-serif">SWISS MADE</text>',
+        var dirLight = new THREE.DirectionalLight(0xfff8e7, 1.2);
+        dirLight.position.set(5, 8, 10);
+        dirLight.castShadow = true;
+        threeScene.add(dirLight);
 
-            // Akrep ve Yelkovan
-            '<line x1="100" y1="150" x2="100" y2="115" stroke="#222" stroke-width="3" stroke-linecap="round"/>',
-            '<line x1="100" y1="150" x2="128" y2="138" stroke="#222" stroke-width="2" stroke-linecap="round"/>',
-            '<line x1="100" y1="150" x2="85" y2="120" stroke="#CC0000" stroke-width="0.8" stroke-linecap="round"/>',
-            '<circle cx="100" cy="150" r="3" fill="#222"/>',
-            '<circle cx="100" cy="150" r="1.5" fill="#FFD700"/>',
+        var rimLight = new THREE.DirectionalLight(0xc9a84c, 0.4);
+        rimLight.position.set(-4, -4, 2);
+        threeScene.add(rimLight);
 
-            // Alt kadran (saniye)
-            '<circle cx="100" cy="170" r="10" fill="none" stroke="#ccc" stroke-width="0.5"/>',
+        var fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        fillLight.position.set(-6, 6, 8);
+        threeScene.add(fillLight);
 
-            // Taç
-            '<rect x="158" y="144" width="10" height="12" rx="2" fill="url(#gold)" stroke="#B8860B" stroke-width="0.5"/>',
+        // --- Saat modelini oluştur ---
+        watchGroup = buildWatchModel();
+        threeScene.add(watchGroup);
 
-            // Kordon alt
-            '<rect x="62" y="195" width="76" height="105" rx="6" fill="url(#strap)" filter="url(#shadow)"/>',
-            '<rect x="68" y="200" width="64" height="96" rx="4" fill="#8B4513" opacity="0.6"/>',
+        threeReady = true;
+        console.log("[WristView] Three.js hazır");
+    }
 
-            // Kordon delikleri
-            '<ellipse cx="100" cy="225" rx="4" ry="2.5" fill="#5C2E00"/>',
-            '<ellipse cx="100" cy="240" rx="4" ry="2.5" fill="#5C2E00"/>',
-            '<ellipse cx="100" cy="255" rx="4" ry="2.5" fill="#5C2E00"/>',
-            '<ellipse cx="100" cy="270" rx="4" ry="2.5" fill="#5C2E00"/>',
-            '<ellipse cx="100" cy="285" rx="4" ry="2.5" fill="#5C2E00"/>',
+    // ========================
+    //  3D SAAT MODELİ
+    // ========================
+    function buildWatchModel() {
+        var group = new THREE.Group();
+
+        // Materyaller
+        var goldMat = new THREE.MeshStandardMaterial({
+            color: 0xFFD700,
+            metalness: 0.95,
+            roughness: 0.15,
+            envMapIntensity: 1.0
+        });
+        var darkGoldMat = new THREE.MeshStandardMaterial({
+            color: 0xB8860B,
+            metalness: 0.9,
+            roughness: 0.25
+        });
+        var dialMat = new THREE.MeshStandardMaterial({
+            color: 0xFFFFF0,
+            metalness: 0.05,
+            roughness: 0.8
+        });
+        var glassMat = new THREE.MeshStandardMaterial({
+            color: 0xaaddff,
+            metalness: 0.1,
+            roughness: 0.0,
+            transparent: true,
+            opacity: 0.18
+        });
+        var strapMat = new THREE.MeshStandardMaterial({
+            color: 0x5C2E00,
+            metalness: 0.0,
+            roughness: 0.9
+        });
+        var strapHighMat = new THREE.MeshStandardMaterial({
+            color: 0x8B4513,
+            metalness: 0.0,
+            roughness: 0.85
+        });
+        var handMat = new THREE.MeshStandardMaterial({
+            color: 0x111111,
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        var secondHandMat = new THREE.MeshStandardMaterial({
+            color: 0xCC0000,
+            metalness: 0.5,
+            roughness: 0.4
+        });
+        var markerMat = new THREE.MeshStandardMaterial({
+            color: 0x333333,
+            metalness: 0.3,
+            roughness: 0.5
+        });
+        var crownMat = new THREE.MeshStandardMaterial({
+            color: 0xFFD700,
+            metalness: 0.9,
+            roughness: 0.2
+        });
+
+        // ---- KORDON ÜST ----
+        buildStrap(group, strapMat, strapHighMat, 0, 3.1, true);
+
+        // ---- KORDON ALT ----
+        buildStrap(group, strapMat, strapHighMat, 0, -3.1, false);
+
+        // ---- KASA (Ana gövde) ----
+        // Dış halka
+        var caseGeo = new THREE.CylinderGeometry(2.1, 2.1, 0.55, 64);
+        var caseMesh = new THREE.Mesh(caseGeo, darkGoldMat);
+        caseMesh.rotation.x = Math.PI / 2;
+        caseMesh.castShadow = true;
+        group.add(caseMesh);
+
+        // İç halka (kenar parlaklık)
+        var innerRimGeo = new THREE.CylinderGeometry(1.95, 1.95, 0.56, 64);
+        var innerRimMesh = new THREE.Mesh(innerRimGeo, goldMat);
+        innerRimMesh.rotation.x = Math.PI / 2;
+        group.add(innerRimMesh);
+
+        // Kadran tabanı
+        var dialGeo = new THREE.CylinderGeometry(1.85, 1.85, 0.1, 64);
+        var dialMesh = new THREE.Mesh(dialGeo, dialMat);
+        dialMesh.rotation.x = Math.PI / 2;
+        dialMesh.position.z = 0.15;
+        dialMesh.receiveShadow = true;
+        group.add(dialMesh);
+
+        // Cam
+        var glassGeo = new THREE.CylinderGeometry(1.9, 1.9, 0.06, 64);
+        var glassMesh = new THREE.Mesh(glassGeo, glassMat);
+        glassMesh.rotation.x = Math.PI / 2;
+        glassMesh.position.z = 0.3;
+        group.add(glassMesh);
+
+        // ---- SAAT İŞARETLEYİCİLERİ ----
+        buildMarkers(group, goldMat, markerMat);
+
+        // ---- AKREP ----
+        var hourGroup = new THREE.Group();
+        var hourGeo = new THREE.BoxGeometry(0.06, 1.0, 0.04);
+        var hourMesh = new THREE.Mesh(hourGeo, handMat);
+        hourMesh.position.y = 0.5;
+        hourGroup.add(hourMesh);
+        // Merkez cap
+        var hourCapGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.05, 16);
+        var hourCap = new THREE.Mesh(hourCapGeo, handMat);
+        hourCap.rotation.x = Math.PI / 2;
+        hourGroup.add(hourCap);
+        hourGroup.position.z = 0.22;
+        group.add(hourGroup);
+        clockHands.hour = hourGroup;
+
+        // ---- YELKOVan ----
+        var minGroup = new THREE.Group();
+        var minGeo = new THREE.BoxGeometry(0.04, 1.4, 0.04);
+        var minMesh = new THREE.Mesh(minGeo, handMat);
+        minMesh.position.y = 0.7;
+        minGroup.add(minMesh);
+        minGroup.position.z = 0.26;
+        group.add(minGroup);
+        clockHands.minute = minGroup;
+
+        // ---- SANİYE ----
+        var secGroup = new THREE.Group();
+        var secGeo = new THREE.BoxGeometry(0.025, 1.65, 0.025);
+        var secMesh = new THREE.Mesh(secGeo, secondHandMat);
+        secMesh.position.y = 0.7;
+        secGroup.add(secMesh);
+        // Karşı kol
+        var secCounterGeo = new THREE.BoxGeometry(0.025, 0.4, 0.025);
+        var secCounter = new THREE.Mesh(secCounterGeo, secondHandMat);
+        secCounter.position.y = -0.2;
+        secGroup.add(secCounter);
+        secGroup.position.z = 0.30;
+        group.add(secGroup);
+        clockHands.second = secGroup;
+
+        // ---- MERKEZ NOKTASI ----
+        var centerGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.08, 16);
+        var centerMesh = new THREE.Mesh(centerGeo, goldMat);
+        centerMesh.rotation.x = Math.PI / 2;
+        centerMesh.position.z = 0.32;
+        group.add(centerMesh);
+
+        // ---- TAÇA (CROWN) ----
+        var crownGeo = new THREE.CylinderGeometry(0.15, 0.12, 0.4, 16);
+        var crown = new THREE.Mesh(crownGeo, crownMat);
+        crown.rotation.z = Math.PI / 2;
+        crown.position.x = 2.3;
+        group.add(crown);
+
+        // ---- MARKA METNİ (daire marker ile temsil) ----
+        var brandGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.02, 8);
+        var brandMat2 = new THREE.MeshStandardMaterial({ color: 0xB8860B, metalness: 0.8, roughness: 0.2 });
+        for (var i = 0; i < 5; i++) {
+            var dot = new THREE.Mesh(brandGeo, brandMat2);
+            dot.rotation.x = Math.PI / 2;
+            dot.position.set(-0.3 + i * 0.15, 0.6, 0.21);
+            group.add(dot);
+        }
+
+        return group;
+    }
+
+    function buildStrap(group, mat, highlightMat, x, yCenter, isTop) {
+        // Ana kordon gövdesi
+        var strapGeo = new THREE.BoxGeometry(1.3, 2.4, 0.22);
+        var strap = new THREE.Mesh(strapGeo, mat);
+        strap.position.set(x, yCenter, 0);
+        strap.castShadow = true;
+        strap.receiveShadow = true;
+        group.add(strap);
+
+        // Kordon çizgileri (ince şeritler)
+        var lineCount = 4;
+        for (var i = 0; i < lineCount; i++) {
+            var lineGeo = new THREE.BoxGeometry(1.28, 0.04, 0.23);
+            var line = new THREE.Mesh(lineGeo, highlightMat);
+            var offset = (i - lineCount / 2 + 0.5) * 0.45;
+            line.position.set(x, yCenter + offset, 0);
+            group.add(line);
+        }
+
+        // Alt kordon için delikler
+        if (!isTop) {
+            var holeCount = 5;
+            for (var j = 0; j < holeCount; j++) {
+                var holeGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.25, 12);
+                var holeMat = new THREE.MeshStandardMaterial({ color: 0x3A1A00, metalness: 0, roughness: 1 });
+                var hole = new THREE.Mesh(holeGeo, holeMat);
+                hole.rotation.x = Math.PI / 2;
+                hole.position.set(x, yCenter - 0.6 + j * 0.28, 0);
+                group.add(hole);
+            }
 
             // Toka
-            '<rect x="70" y="208" width="60" height="4" rx="1" fill="#B8860B"/>',
+            var buckleGeo = new THREE.BoxGeometry(1.3, 0.12, 0.25);
+            var buckleMat = new THREE.MeshStandardMaterial({ color: 0xB8860B, metalness: 0.9, roughness: 0.2 });
+            var buckle = new THREE.Mesh(buckleGeo, buckleMat);
+            buckle.position.set(x, yCenter + 0.9, 0);
+            group.add(buckle);
+        }
+    }
 
-            '</svg>'
-        ].join("");
+    function buildMarkers(group, goldMat, markerMat) {
+        // 12 saat işareti
+        for (var i = 0; i < 12; i++) {
+            var angle = (i / 12) * Math.PI * 2;
+            var isHour = (i % 3 === 0); // 12, 3, 6, 9 daha büyük
 
-        return "data:image/svg+xml;base64," + btoa(svg);
+            var w  = isHour ? 0.12 : 0.06;
+            var h  = isHour ? 0.35 : 0.22;
+            var r  = 1.6;
+
+            var markerGeo = new THREE.BoxGeometry(w, h, 0.04);
+            var mat = isHour ? goldMat : markerMat;
+            var marker = new THREE.Mesh(markerGeo, mat);
+
+            marker.position.set(
+                Math.sin(angle) * r,
+                Math.cos(angle) * r,
+                0.2
+            );
+            marker.rotation.z = -angle;
+            group.add(marker);
+        }
+
+        // Küçük dakika işaretleri (60 adet, saat olmayan konumlar)
+        for (var m = 0; m < 60; m++) {
+            if (m % 5 === 0) continue; // Büyük işaret var, atla
+            var mAngle = (m / 60) * Math.PI * 2;
+            var mGeo = new THREE.BoxGeometry(0.03, 0.1, 0.03);
+            var mMesh = new THREE.Mesh(mGeo, markerMat);
+            mMesh.position.set(
+                Math.sin(mAngle) * 1.72,
+                Math.cos(mAngle) * 1.72,
+                0.19
+            );
+            mMesh.rotation.z = -mAngle;
+            group.add(mMesh);
+        }
+    }
+
+    // ========================
+    //  AKREP/YELKOVAn GÜNCELLE
+    // ========================
+    function updateClockHands() {
+        if (!threeReady || !clockHands.hour) return;
+
+        var now = new Date();
+        var hours   = now.getHours() % 12;
+        var minutes = now.getMinutes();
+        var seconds = now.getSeconds() + now.getMilliseconds() / 1000;
+
+        var hourAngle   = -((hours + minutes / 60) / 12) * Math.PI * 2;
+        var minuteAngle = -((minutes + seconds / 60) / 60) * Math.PI * 2;
+        var secondAngle = -(seconds / 60) * Math.PI * 2;
+
+        clockHands.hour.rotation.z   = hourAngle;
+        clockHands.minute.rotation.z = minuteAngle;
+        clockHands.second.rotation.z = secondAngle;
+    }
+
+    // ========================
+    //  3D SAAT ÇİZ (drawWatch yerine)
+    // ========================
+    function render3DWatch(destX, destY, size, wristAngle) {
+        if (!threeReady) return;
+
+        // Akrepleri güncelle
+        updateClockHands();
+
+        // Bilek açısına göre grubu döndür
+        // MediaPipe angle: elin yönü (radyan)
+        // Saati bileğe dik yerleştir: +90 derece
+        watchGroup.rotation.z = wristAngle - Math.PI / 2;
+
+        // Hafif 3D tilt — gerçekçilik için
+        watchGroup.rotation.x = 0.25;
+        watchGroup.rotation.y = 0.1;
+
+        // Render et
+        threeRenderer.render(threeScene, threeCamera);
+
+        // Offscreen canvas'tan 2D canvas'a kopyala
+        var srcCanvas = threeRenderer.domElement;
+        var drawSize  = size * 1.8; // 3D model daha iyi ölçeklenir
+
+        ctx.save();
+        ctx.shadowColor    = "rgba(0,0,0,0.45)";
+        ctx.shadowBlur     = 24;
+        ctx.shadowOffsetX  = 4;
+        ctx.shadowOffsetY  = 8;
+
+        ctx.drawImage(
+            srcCanvas,
+            destX - drawSize / 2,
+            destY - drawSize / 2,
+            drawSize,
+            drawSize
+        );
+
+        ctx.restore();
     }
 
     // ========================
@@ -201,73 +477,58 @@
     function startCamera(facing) {
         setStatus("Kamera açılıyor...", "waiting");
 
-        // Önceki stream'i kapat
         if (currentStream) {
-            currentStream.getTracks().forEach(function (track) {
-                track.stop();
-            });
+            currentStream.getTracks().forEach(function (t) { t.stop(); });
         }
 
         var constraints = {
             video: {
                 facingMode: facing || "environment",
-                width: { ideal: 1280 },
+                width:  { ideal: 1280 },
                 height: { ideal: 720 }
             },
             audio: false
         };
 
-        return navigator.mediaDevices
-            .getUserMedia(constraints)
-            .then(function (stream) {
-                currentStream = stream;
-                video.srcObject = stream;
+        return navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+            currentStream = stream;
+            video.srcObject = stream;
 
-                return new Promise(function (resolve, reject) {
-                    video.onloadedmetadata = function () {
-                        video
-                            .play()
-                            .then(function () {
-                                canvas.width = video.videoWidth;
-                                canvas.height = video.videoHeight;
-                                touchX = canvas.width / 2;
-                                touchY = canvas.height / 2;
-                                setStatus("Kamera hazır", "detecting");
-                                resolve();
-                            })
-                            .catch(reject);
-                    };
-
-                    setTimeout(function () {
-                        reject(new Error("Kamera zaman aşımı"));
-                    }, 15000);
-                });
+            return new Promise(function (resolve, reject) {
+                video.onloadedmetadata = function () {
+                    video.play().then(function () {
+                        canvas.width  = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        touchX = canvas.width  / 2;
+                        touchY = canvas.height / 2;
+                        setStatus("Kamera hazır", "detecting");
+                        resolve();
+                    }).catch(reject);
+                };
+                setTimeout(function () { reject(new Error("Kamera zaman aşımı")); }, 15000);
             });
+        });
     }
 
     function switchCamera() {
         currentFacing = currentFacing === "environment" ? "user" : "environment";
 
-        // Ayna efekti: ön kamerada ayna, arka kamerada normal
         if (currentFacing === "user") {
-            video.style.transform = "scaleX(-1)";
+            video.style.transform  = "scaleX(-1)";
             canvas.style.transform = "scaleX(-1)";
         } else {
-            video.style.transform = "scaleX(1)";
+            video.style.transform  = "scaleX(1)";
             canvas.style.transform = "scaleX(1)";
         }
 
         isRunning = false;
-
-        startCamera(currentFacing)
-            .then(function () {
-                isRunning = true;
-                detectFrame();
-            })
-            .catch(function (err) {
-                setStatus("Kamera değiştirilemedi", "waiting");
-                console.error(err);
-            });
+        startCamera(currentFacing).then(function () {
+            isRunning = true;
+            detectFrame();
+        }).catch(function (err) {
+            setStatus("Kamera değiştirilemedi", "waiting");
+            console.error(err);
+        });
     }
 
     // ========================
@@ -275,50 +536,37 @@
     // ========================
     function loadScript(src) {
         return new Promise(function (resolve, reject) {
-            var script = document.createElement("script");
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = function () {
-                reject(new Error("Yüklenemedi: " + src));
-            };
-            document.head.appendChild(script);
+            var s = document.createElement("script");
+            s.src = src;
+            s.onload  = resolve;
+            s.onerror = function () { reject(new Error("Yüklenemedi: " + src)); };
+            document.head.appendChild(s);
         });
     }
 
     function loadMediaPipe() {
         setStatus("El algılama yükleniyor...", "waiting");
-
         return loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js")
-            .then(function () {
-                return loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js");
-            })
-            .then(function () {
-                return loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js");
-            })
-            .then(function () {
-                return initHands();
-            });
+            .then(function () { return loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"); })
+            .then(function () { return loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"); })
+            .then(function () { return initHands(); });
     }
 
     function initHands() {
         setStatus("Model yükleniyor...", "waiting");
-
         /* global Hands */
         handsInstance = new Hands({
             locateFile: function (file) {
                 return "https://cdn.jsdelivr.net/npm/@mediapipe/hands/" + file;
             }
         });
-
         handsInstance.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
             minDetectionConfidence: 0.7,
             minTrackingConfidence: 0.5
         });
-
         handsInstance.onResults(onHandResults);
-
         return handsInstance.send({ image: video }).then(function () {
             setStatus("Hazır! Bileğinizi gösterin", "detecting");
         });
@@ -331,11 +579,10 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            var landmarks = results.multiHandLandmarks[0];
-
-            var wrist       = landmarks[0];
-            var point5      = landmarks[5];
-            var point17     = landmarks[17];
+            var landmarks    = results.multiHandLandmarks[0];
+            var wrist        = landmarks[0];
+            var point5       = landmarks[5];
+            var point17      = landmarks[17];
             var middleFinger = landmarks[9];
 
             var wristX = wrist.x * canvas.width;
@@ -353,7 +600,7 @@
                 (middleFinger.x - wrist.x) * canvas.width
             );
 
-            drawWatch(wristX, wristY, watchSize, angle);
+            render3DWatch(wristX, wristY, watchSize, angle);
 
             if (!handDetected) {
                 handDetected = true;
@@ -366,27 +613,6 @@
     }
 
     // ========================
-    //  SAAT ÇİZİMİ
-    // ========================
-    function drawWatch(x, y, size, angle) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle - Math.PI / 2);
-
-        // Gölge
-        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-        ctx.shadowBlur = 20;
-        ctx.shadowOffsetX = 4;
-        ctx.shadowOffsetY = 6;
-
-        var w = size;
-        var h = size * 1.5;
-
-        ctx.drawImage(watchImage, -w / 2, -h / 2, w, h);
-        ctx.restore();
-    }
-
-    // ========================
     //  FRAME DÖNGÜSÜ
     // ========================
     function detectFrame() {
@@ -394,22 +620,17 @@
 
         if (useSimpleMode) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawWatch(touchX, touchY, 120 * watchScale, 0);
+            render3DWatch(touchX, touchY, 120 * watchScale, 0);
             requestAnimationFrame(detectFrame);
         } else {
-            handsInstance
-                .send({ image: video })
-                .then(function () {
-                    requestAnimationFrame(detectFrame);
-                })
-                .catch(function () {
-                    requestAnimationFrame(detectFrame);
-                });
+            handsInstance.send({ image: video })
+                .then(function () { requestAnimationFrame(detectFrame); })
+                .catch(function () { requestAnimationFrame(detectFrame); });
         }
     }
 
     // ========================
-    //  BASİT MOD
+    //  BASİT MOD (MediaPipe yoksa)
     // ========================
     function setupSimpleMode() {
         useSimpleMode = true;
@@ -425,20 +646,14 @@
             updateTouch(e);
         }, { passive: false });
 
-        canvas.addEventListener("mousedown", function (e) {
-            updateMouse(e);
-        });
-
-        canvas.addEventListener("mousemove", function (e) {
-            if (e.buttons === 1) updateMouse(e);
-        });
+        canvas.addEventListener("mousedown",  function (e) { updateMouse(e); });
+        canvas.addEventListener("mousemove",  function (e) { if (e.buttons === 1) updateMouse(e); });
     }
 
     function updateTouch(e) {
-        var rect = canvas.getBoundingClientRect();
-        var scaleX = canvas.width / rect.width;
+        var rect   = canvas.getBoundingClientRect();
+        var scaleX = canvas.width  / rect.width;
         var scaleY = canvas.height / rect.height;
-
         if (currentFacing === "user") {
             touchX = (rect.width - (e.touches[0].clientX - rect.left)) * scaleX;
         } else {
@@ -448,10 +663,9 @@
     }
 
     function updateMouse(e) {
-        var rect = canvas.getBoundingClientRect();
-        var scaleX = canvas.width / rect.width;
+        var rect   = canvas.getBoundingClientRect();
+        var scaleX = canvas.width  / rect.width;
         var scaleY = canvas.height / rect.height;
-
         if (currentFacing === "user") {
             touchX = (rect.width - (e.clientX - rect.left)) * scaleX;
         } else {
@@ -464,36 +678,34 @@
     //  FOTOĞRAF ÇEK
     // ========================
     function capturePhoto() {
-        var c = document.createElement("canvas");
-        c.width = canvas.width;
-        c.height = canvas.height;
-        var cCtx = c.getContext("2d");
+        var c     = document.createElement("canvas");
+        c.width   = canvas.width;
+        c.height  = canvas.height;
+        var cCtx  = c.getContext("2d");
 
         if (currentFacing === "user") {
             cCtx.save();
             cCtx.scale(-1, 1);
             cCtx.drawImage(video, -c.width, 0, c.width, c.height);
             cCtx.restore();
-
             cCtx.save();
             cCtx.scale(-1, 1);
             cCtx.drawImage(canvas, -c.width, 0, c.width, c.height);
             cCtx.restore();
         } else {
-            cCtx.drawImage(video, 0, 0, c.width, c.height);
+            cCtx.drawImage(video,  0, 0, c.width, c.height);
             cCtx.drawImage(canvas, 0, 0, c.width, c.height);
         }
 
         // Watermark
-        cCtx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        cCtx.fillStyle = "rgba(255,255,255,0.5)";
         cCtx.font = "bold 14px Inter, sans-serif";
         cCtx.fillText("WristView ⌚", 12, c.height - 16);
 
-        var link = document.createElement("a");
-        link.download = "wristview-" + Date.now() + ".png";
-        link.href = c.toDataURL("image/png", 0.92);
+        var link       = document.createElement("a");
+        link.download  = "wristview-" + Date.now() + ".png";
+        link.href      = c.toDataURL("image/png", 0.92);
         link.click();
-
         showToast("✅ Fotoğraf kaydedildi!");
     }
 
@@ -507,55 +719,46 @@
         startBtn.querySelector(".btn-arrow").textContent = "";
         startBtn.disabled = true;
 
-        // Saat görseli
-        watchImage.src = createWatchDataURL();
+        video.style.transform  = "scaleX(1)";
+        canvas.style.transform = "scaleX(1)";
 
-        watchImage.onload = function () {
+        // 1) Three.js yükle  2) Kamera  3) MediaPipe
+        loadThreeJS()
+            .then(function () {
+                initThreeJS();
+                return startCamera(currentFacing);
+            })
+            .then(function () {
+                return loadMediaPipe();
+            })
+            .then(function () {
+                showMainUI();
+                isRunning = true;
+                detectFrame();
+            })
+            .catch(function (err) {
+                console.error("Hata:", err);
 
-            // Arka kamera default - transform yok
-            video.style.transform = "scaleX(1)";
-            canvas.style.transform = "scaleX(1)";
-
-            startCamera(currentFacing)
-                .then(function () {
-                    return loadMediaPipe();
-                })
-                .then(function () {
-                    // AR mod
+                if (video.srcObject) {
+                    // Kamera var, MediaPipe yüklenemedi → basit mod
+                    setupSimpleMode();
                     showMainUI();
                     isRunning = true;
                     detectFrame();
-                })
-                .catch(function (err) {
-                    console.error("Hata:", err);
-
-                    if (video.srcObject) {
-                        // Kamera var, MediaPipe yok → basit mod
-                        setupSimpleMode();
-                        showMainUI();
-                        isRunning = true;
-                        detectFrame();
-                    } else {
-                        showError(
-                            "<strong>Hata:</strong> " + err.message + "<br><br>" +
-                            "<strong>Çözüm Önerileri:</strong><br>" +
-                            "• Kamera iznini kontrol edin<br>" +
-                            "• Sayfayı yenileyip tekrar deneyin<br>" +
-                            "• Başka bir tarayıcı deneyin"
-                        );
-                        startBtn.classList.remove("loading");
-                        startBtn.querySelector(".btn-text").textContent = "Tekrar Dene";
-                        startBtn.querySelector(".btn-arrow").textContent = "↻";
-                        startBtn.disabled = false;
-                    }
-                });
-        };
-
-        watchImage.onerror = function () {
-            showError("Saat görseli yüklenemedi. Sayfayı yenileyin.");
-            startBtn.classList.remove("loading");
-            startBtn.disabled = false;
-        };
+                } else {
+                    showError(
+                        "<strong>Hata:</strong> " + err.message + "<br><br>" +
+                        "<strong>Çözüm Önerileri:</strong><br>" +
+                        "• Kamera iznini kontrol edin<br>" +
+                        "• Sayfayı yenileyip tekrar deneyin<br>" +
+                        "• Başka bir tarayıcı deneyin"
+                    );
+                    startBtn.classList.remove("loading");
+                    startBtn.querySelector(".btn-text").textContent = "Tekrar Dene";
+                    startBtn.querySelector(".btn-arrow").textContent = "↻";
+                    startBtn.disabled = false;
+                }
+            });
     }
 
     // ========================
@@ -574,7 +777,6 @@
     });
 
     captureBtn.addEventListener("click", capturePhoto);
-
     cameraSwitchBtn.addEventListener("click", switchCamera);
 
     // ========================
