@@ -366,9 +366,9 @@
       setStatus("Hazır! Bileğinizi gösterin", "detecting");
     }).catch(function (err) {
       console.warn("[WristView] GLB yüklenemedi, procedural fallback:", err.message);
-      var fallback = buildProceduralWatch();
-      swapModel(fallback, w);
-      setStatus("Hazır! Bileğinizi gösterin", "detecting");
+      //var fallback = buildProceduralWatch();
+      //swapModel(fallback, w);
+      //setStatus("Hazır! Bileğinizi gösterin", "detecting");
     });
   }
 
